@@ -1,7 +1,11 @@
+import json
 import requests
 import time
 import urllib3
 from threading import Thread
+from datetime import datetime
+
+webhook_url = "" # add webhook URL here
 
 # Suppress only the single InsecureRequestWarning from urllib3 needed for `verify=False`.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -43,6 +47,7 @@ def post_claim_task(token, task_info, proxies):
 
 def poll_unregistered_targets(token, proxies, known_slugs):
     """Polls for unregistered targets every 5 minutes and signs up for new ones."""
+    print(f"{datetime.now()} : Targets Claiming Start")
     while True:
         url = "https://platform.synack.com/api/targets?filter%5Bprimary%5D=unregistered&filter%5Bsecondary%5D=all&filter%5Bcategory%5D=all&filter%5Bindustry%5D=all&filter%5Bpayout_status%5D=all&sorting%5Bfield%5D=onboardedAt&sorting%5Bdirection%5D=desc&pagination%5Bpage%5D=1&pagination%5Bper_page%5D=15"
         headers = {
@@ -58,7 +63,9 @@ def poll_unregistered_targets(token, proxies, known_slugs):
                     known_slugs.add(slug)
                     signup_target(token, slug, proxies)
         else:
-            print(f"Failed to retrieve unregistered targets. Status code: {response.status_code}")
+            print(f"{datetime.now()} : Failed to retrieve unregistered targets. Status code: {response.status_code}")
+            requests.post(webhook_url, data=json.dumps({'text': f'Failed to retrieve unregistered targets. Status code: {response.status_code}'}), headers={'Content-Type': 'application/json'}, verify=False)
+
         time.sleep(300)  # Poll every 5 minutes
 
 def signup_target(token, slug, proxies):
@@ -71,9 +78,11 @@ def signup_target(token, slug, proxies):
     payload = {"ResearcherListing": {"terms": 1}}
     response = requests.post(url, json=payload, headers=headers, proxies=proxies, verify=False)
     if response.status_code == 200:
-        print(f"Signed up for target {slug} successfully.")
+        print(f"{datetime.now()} : Signed up for target {slug} successfully.")
+        requests.post(webhook_url, data=json.dumps({'text': f'Signed up for target {slug} successfully.'}), headers={'Content-Type': 'application/json'}, verify=False)
     else:
-        print(f"Failed to sign up for target {slug}. Status code: {response.status_code}, Response: {response.text}")
+        print(f"{datetime.now()} : Failed to sign up for target {slug}. Status code: {response.status_code}, Response: {response.text}")
+        requests.post(webhook_url, data=json.dumps({'text': f'Failed to sign up for target {slug}. Status code: {response.status_code}, Response: {response.text}'}), headers={'Content-Type': 'application/json'}, verify=False)
 
 def main():
     token_file_path = '/tmp/synacktoken'
@@ -89,20 +98,24 @@ def main():
     target_thread.start()
 
     while True:
+        print(f"{datetime.now()} : Mission Claiming Start")
         get_response = get_task(token, proxies)
         if get_response.status_code == 200:
             tasks = get_response.json()
             for task in tasks:
                 post_response = post_claim_task(token, task, proxies)
                 if post_response.status_code == 201:
-                    print("Mission claimed successfully.")
+                    print(f"{datetime.now()} : Mission claimed successfully.")
+                    requests.post(webhook_url, data=json.dumps({'text': f'Mission claimed successfully: {task["id"]}'}), headers={'Content-Type': 'application/json'}, verify=False)
                 elif post_response.status_code == 412:
-                    print("Mission cannot be claimed anymore.")
+                    print(f"{datetime.now()} : Mission cannot be claimed anymore.")
+                    requests.post(webhook_url, data=json.dumps({'text': f'Mission cannot be claimed anymore.'}), headers={'Content-Type': 'application/json'}, verify=False)
                     break
-                time.sleep(5)
+                time.sleep(0.5)
         else:
-            print(f"Failed to retrieve tasks. Status code: {get_response.status_code}")
-        time.sleep(30)
+            print(f"{datetime.now()} : Failed to retrieve tasks. Status code: {get_response.status_code}")
+            requests.post(webhook_url, data=json.dumps({'text': f'Failed to retrieve tasks. Status code: {get_response.status_code}'}), headers={'Content-Type': 'application/json'}, verify=False)
+        time.sleep(10)
 
 if __name__ == "__main__":
     main()
